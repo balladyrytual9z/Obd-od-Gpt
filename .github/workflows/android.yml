@@ -16,6 +16,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
+    env:
+      ANDROID_HOME: /usr/local/lib/android/sdk
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -25,6 +29,20 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+
+      - name: Verify Android SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ ! -d "$ANDROID_HOME" ]; then
+            echo "::error::Android SDK directory not found: $ANDROID_HOME"
+            exit 1
+          fi
+
+          echo "Android SDK: $ANDROID_HOME"
+          echo "Java version:"
+          java -version
 
       - name: Find and extract project ZIP
         shell: bash
@@ -36,39 +54,47 @@ jobs:
           ZIP_FILE="$(find . -maxdepth 1 -type f -iname '*.zip' -print -quit)"
 
           if [ -z "$ZIP_FILE" ]; then
-            echo "::error::Brak pliku ZIP w glownym katalogu repozytorium."
+            echo "::error::No project ZIP found in the repository root."
             exit 1
           fi
 
-          echo "Znaleziono archiwum: $ZIP_FILE"
+          echo "Found archive: $ZIP_FILE"
           unzip -q "$ZIP_FILE" -d extracted
 
           GRADLEW="$(find extracted -type f -name gradlew -print -quit)"
 
           if [ -z "$GRADLEW" ]; then
-            echo "::error::ZIP nie zawiera gradlew. Wgraj kompletne archiwum projektu Android."
+            echo "::error::The ZIP does not contain gradlew."
             exit 1
           fi
 
           PROJECT_DIR="$(dirname "$GRADLEW")"
-
           chmod +x "$GRADLEW"
 
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
-          echo "Projekt Android: $PROJECT_DIR"
+          echo "Android project: $PROJECT_DIR"
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Build and run unit tests
+      - name: Accept Android SDK licenses
         working-directory: ${{ env.PROJECT_DIR }}
+        shell: bash
         run: |
-          ./gradlew test --stacktrace
+          set -euo pipefail
+
+          if [ -x "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" ]; then
+            yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses || true
+          elif [ -x "$ANDROID_HOME/tools/bin/sdkmanager" ]; then
+            yes | "$ANDROID_HOME/tools/bin/sdkmanager" --licenses || true
+          else
+            echo "sdkmanager not found at standard paths; Gradle will attempt to use the installed SDK."
+          fi
+
+      - name: Run unit tests
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: ./gradlew test --stacktrace
 
       - name: Build debug APK
         working-directory: ${{ env.PROJECT_DIR }}
-        run: |
-          ./gradlew :app:assembleDebug --stacktrace
+        run: ./gradlew :app:assembleDebug --stacktrace
 
       - name: Verify APK
         shell: bash
@@ -78,14 +104,14 @@ jobs:
           APK="$(find extracted -type f -path '*/build/outputs/apk/debug/*.apk' -print -quit)"
 
           if [ -z "$APK" ]; then
-            echo "::error::Kompilacja zakonczona bez znalezienia pliku APK."
+            echo "::error::Build finished but no debug APK was found."
             exit 1
           fi
 
-          echo "APK gotowy: $APK"
+          echo "APK created: $APK"
           ls -lh "$APK"
 
-      - name: Upload APK artifact
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: Honda-OBD-APK
