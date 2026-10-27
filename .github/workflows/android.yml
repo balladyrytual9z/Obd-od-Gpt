@@ -14,6 +14,10 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
+    defaults:
+      run:
+        working-directory: obd2-dashboard-main
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -22,10 +26,16 @@ jobs:
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: '21'
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
+
+      - name: Check project files
+        run: |
+          test -f gradlew
+          test -f settings.gradle.kts
+          chmod +x gradlew
 
       - name: Run tests
         run: ./gradlew test --stacktrace
@@ -37,6 +47,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: Honda-OBD-APK
-          path: app/build/outputs/apk/debug/*.apk
+          path: obd2-dashboard-main/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
           retention-days: 30
