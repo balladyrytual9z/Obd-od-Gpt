@@ -14,10 +14,6 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
-    defaults:
-      run:
-        working-directory: obd2-dashboard-main
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -26,27 +22,48 @@ jobs:
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '21'
+          java-version: '17'
 
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
-
-      - name: Check project files
+      - name: Extract project ZIP
+        shell: bash
         run: |
-          test -f gradlew
-          test -f settings.gradle.kts
-          chmod +x gradlew
+          set -e
+          mkdir -p extracted
+
+          ZIP_FILE="$(find . -maxdepth 1 -type f -iname '*.zip' -print -quit)"
+
+          if [ -z "$ZIP_FILE" ]; then
+            echo "::error::Nie znaleziono pliku ZIP w głównym katalogu repozytorium."
+            exit 1
+          fi
+
+          unzip -q "$ZIP_FILE" -d extracted
+
+          WRAPPER="$(find extracted -type f -name gradlew -print -quit)"
+
+          if [ -z "$WRAPPER" ]; then
+            echo "::error::ZIP nie zawiera pliku gradlew. Sprawdź, czy wgrano właściwe archiwum projektu."
+            exit 1
+          fi
+
+          PROJECT_DIR="$(dirname "$WRAPPER")"
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+          chmod +x "$WRAPPER"
+
+          echo "Projekt znaleziony w: $PROJECT_DIR"
 
       - name: Run tests
         run: ./gradlew test --stacktrace
+        working-directory: ${{ env.PROJECT_DIR }}
 
       - name: Build APK
         run: ./gradlew :app:assembleDebug --stacktrace
+        working-directory: ${{ env.PROJECT_DIR }}
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: Honda-OBD-APK
-          path: obd2-dashboard-main/app/build/outputs/apk/debug/*.apk
+          path: extracted/**/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
           retention-days: 30
